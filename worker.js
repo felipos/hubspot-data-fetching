@@ -353,15 +353,6 @@ const drainQueue = async (domain, actions, q) => {
   return true;
 };
 
-// this worker should run daily
-// extract meeting title
-// extract meeting timestamp and other useful properties
-
-// save when meeting was created
-// save when meeting was updated
-
-// with the meeting data, also save which contact (email) joined the meeting
-// note: contact data doest not come with meeting data. you should solve this in your way
 const getMeetingContacts = async (meetingIds) => {
   if (!meetingIds.length) {
     return {};
@@ -402,28 +393,48 @@ const getContactEmails = async (contactIds) => {
     return {};
   }
 
-  console.log("Fetching emails for meeting participants...", contactIds);
   const uniqueContactIds = [...new Set(contactIds.map((id) => Number(id)))];
+  console.log(
+    "Fetching emails for unique meeting participants:",
+    uniqueContactIds
+  );
 
-  const contacts = await hubspotClient.crm.contacts.searchApi.doSearch({
-    filterGroups: [
-      {
-        filters: [
+  const chunkSize = 50;
+  const emailMap = {};
+
+  for (let i = 0; i < uniqueContactIds.length; i += chunkSize) {
+    const chunk = uniqueContactIds.slice(i, i + chunkSize);
+
+    console.log(`Fetching batch ${i / chunkSize + 1} for emails:`, chunk);
+
+    try {
+      const contacts = await hubspotClient.crm.contacts.searchApi.doSearch({
+        filterGroups: [
           {
-            propertyName: "hs_object_id",
-            operator: "IN",
-            values: uniqueContactIds.join(","),
+            filters: [
+              { propertyName: "hs_object_id", operator: "IN", values: chunk },
+            ],
           },
         ],
-      },
-    ],
-    properties: ["email"],
-    limit: 100,
-  });
+        properties: ["email"],
+        limit: chunk.length,
+      });
 
-  return Object.fromEntries(
-    contacts.results.map((contact) => [contact.id, contact.properties.email])
-  );
+      Object.assign(
+        emailMap,
+        Object.fromEntries(
+          contacts.results.map((contact) => [
+            contact.id,
+            contact.properties.email,
+          ])
+        )
+      );
+    } catch (err) {
+      console.error("Error fetching contact emails:", err.message);
+    }
+  }
+
+  return emailMap;
 };
 
 const processMeetings = async (domain, hubId, q) => {
@@ -503,7 +514,6 @@ const processMeetings = async (domain, hubId, q) => {
 
     const meetingIds = meetings.map((meeting) => meeting.id);
     const meetingContacts = await getMeetingContacts(meetingIds);
-    console.log(2);
     const contactEmails = await getContactEmails(
       Object.values(meetingContacts).flat()
     );
@@ -530,14 +540,18 @@ const processMeetings = async (domain, hubId, q) => {
       });
     });
 
-    console.log(4);
     offsetObject.after = parseInt(searchResult?.paging?.next?.after);
-
     console.log(`Fetched ${meetings.length} meetings`);
 
     for (const meeting of meetings) {
       if (!meeting.properties) continue;
       const isCreated = new Date(meeting.createdAt) > lastPulledDate;
+      const associatedContacts = meetingContacts[meeting.id] || [];
+
+      const participantIds = associatedContacts.join(", ") || "Unknown";
+      const participantEmails = associatedContacts
+        .map((contactId) => contactEmails[contactId] || "Unknown Email")
+        .join(", ");
 
       const actionTemplate = {
         includeInAnalytics: 0,
@@ -548,6 +562,8 @@ const processMeetings = async (domain, hubId, q) => {
           start_time: meeting.properties.hs_meeting_start_time,
           end_time: meeting.properties.hs_meeting_end_time,
           owner_id: meeting.properties.hubspot_owner_id,
+          participant_ids: participantIds,
+          participant_emails: participantEmails,
         },
       };
 
