@@ -30,6 +30,20 @@
 - Implement batch requests to minimize the number of separate API calls.
   Use caching (e.g., Redis) for contact associations to avoid redundant API requests.
 
+## Bugs & Issues Encountered
+
+1. `lastPulledDates` was inaccessible
+
+- Fixed by converting the Mongoose document into a plain object using `.toObject()`.
+
+2. Error when fetching contacts from HubSpot (`operator IN requires values`)
+
+- Solved by removing duplicate IDs and ensuring the filter used `values` instead of `value`.
+
+3. Issues with access token management
+
+- API requests failed when the token expired. Storing tokens in Redis could solve this issue.
+
 # Screenshot Output
 
 ---
