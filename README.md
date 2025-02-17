@@ -30,6 +30,10 @@
 - Implement batch requests to minimize the number of separate API calls.
   Use caching (e.g., Redis) for contact associations to avoid redundant API requests.
 
+4. Webhooks (if possible)
+
+- The system currently uses polling to fetch updates from HubSpot, but it could leverage webhooks for real-time processing, reducing requests and improving efficiency.
+
 ## Bugs & Issues Encountered
 
 1. `lastPulledDates` was inaccessible
